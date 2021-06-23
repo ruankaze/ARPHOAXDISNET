@@ -173,6 +173,8 @@ public class NzArpHoaxDisnet {
      * 启动方法-欺骗网关-进行局域网断网
      */
     private static void hoaxGatewayDisnet() throws Exception {
+        // 启动成功
+        log.info("ArpNotDisnet starting success .............");
         // 循环发送ARP应答包
         for (int i = 1; true; i++) {
             for (String tarip : IPLIS) {
