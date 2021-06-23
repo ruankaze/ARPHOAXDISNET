@@ -28,14 +28,12 @@
         </dependency>
 
         <!-- jpcap -->
-        <!-- 需要手动导包 - /resources/result/exe/jpcap.jar -->
-        <!-- 以下无效
+        <!-- 手动创建maven库文件包 - 将ARPHOAXDISNET/arps/文件夹放入maven本地库中 -->
         <dependency>
             <groupId>arps.hoaxs.disnets</groupId>
             <artifactId>jpcaps</artifactId>
             <version>2.6</version>
         </dependency>
-        -->
 
         <!-- logback -->
         <dependency>
@@ -83,7 +81,6 @@
                     </transformers>
                 </configuration>
             </plugin>
-            <!--
             <plugin>
                 <groupId>com.akathist.maven.plugins.launch4j</groupId>
                 <artifactId>launch4j-maven-plugin</artifactId>
@@ -124,7 +121,6 @@
                     </execution>
                 </executions>
             </plugin>
-            -->
         </plugins>
     </build>
 

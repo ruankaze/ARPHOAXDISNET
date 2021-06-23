@@ -32,10 +32,14 @@ import java.util.regex.Pattern;
  */
 public class NzArpHoaxDisnet {
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args)  {
 
         // 启动方法-欺骗网关-进行局域网断网
-        NzArpHoaxDisnet.hoaxGatewayDisnet();
+        try {
+            NzArpHoaxDisnet.hoaxGatewayDisnet();
+        } catch (Exception e) {
+            log.error("程序异常终止...", e);
+        }
 
     }
 
@@ -240,7 +244,7 @@ public class NzArpHoaxDisnet {
             if (tarmac == null || tarmac.equals("")) {
                 continue;
             }
-            log.info("IP-> " + tarip + "   ,   " + "MAC-> " + tarmac);
+            log.info("IP-> " + tarip + "\t,\t" + "MAC-> " + tarmac);
             // 存储 ip-mac
             maps.put(tarip, tarmac);
             // 存储 ip
