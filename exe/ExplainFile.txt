@@ -24,7 +24,7 @@
 
 注：第一步必需要做，然后运行第二步或第三步即可。
 
-1. 文件夹 ProjectProcedureExe/Configuration/ 中（必须要做的事，否则运行异常，2/3）。
+1. 文件夹 exe/configuration/ 中（必须要做的事，否则运行异常，2/3）。
 
 	1.1 Jpcap.dll 放入JDK的BIN目录下。
 

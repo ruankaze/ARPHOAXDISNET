@@ -26,11 +26,11 @@
 
 1. 运行 NzArpHoaxDisnet - main 方法，即可。
 
-方式二：exe 运行 - 在 ARPHOAXDISNET/ProjectProcedureExe/ 文件中
+方式二：exe 运行 - 在 ARPHOAXDISNET/exe/ 文件中
 
 注：第一步必需要做，然后运行第二步或第三步即可。</br>
 
-1. 文件夹 ProjectProcedureExe/Configuration/ 中（必须要做的事，否则运行异常，2/3）。</br>
+1. 文件夹 exe/configuration/ 中（必须要做的事，否则运行异常，2/3）。</br>
 	1.1 Jpcap.dll 放入JDK的BIN目录下。</br>
 	1.2 WinPcap_4_1_3.exe 直接安装，一直下一步即可。</br>
 
